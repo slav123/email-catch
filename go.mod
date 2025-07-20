@@ -1,11 +1,11 @@
 module github.com/slav123/email-catch
 
-go 1.21
+go 1.23.0
 
 require (
 	github.com/minio/minio-go/v7 v7.0.63
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.12.0
+	golang.org/x/crypto v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -23,8 +23,8 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	golang.org/x/net v0.14.0 // indirect
-	golang.org/x/sys v0.11.0 // indirect
-	golang.org/x/text v0.12.0 // indirect
+	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
