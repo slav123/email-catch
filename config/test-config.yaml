@@ -1,0 +1,66 @@
+server:
+  ports: [2525, 2526, 2527, 2528]
+  hostname: "localhost"
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+  rate_limit:
+    enabled: false
+    max_emails_per_minute: 1000
+    max_email_size_mb: 100
+
+storage:
+  s3_compatible:
+    enabled: true
+    endpoint: "localhost:9001"
+    access_key: "testuser"
+    secret_key: "testpass"
+    bucket: "test-emails"
+    region: "us-east-1"
+    use_ssl: false
+    path_prefix: "test"
+  local:
+    enabled: true
+    directory: "./test-emails"
+
+routes:
+  - name: "test_capture"
+    condition:
+      recipient_pattern: ".*@test.com"
+    actions:
+      - type: "store_local"
+        enabled: true
+        config:
+          folder: "test"
+      - type: "store_s3"
+        enabled: true
+        config:
+          folder: "test"
+    enabled: true
+
+  - name: "webhook_test"
+    condition:
+      recipient_pattern: "webhook@.*"
+    actions:
+      - type: "webhook"
+        enabled: true
+        config:
+          url: "http://localhost:3000/test-webhook"
+          method: "POST"
+    enabled: true
+
+  - name: "attachment_test"
+    condition:
+      recipient_pattern: "attachments@.*"
+    actions:
+      - type: "store_local"
+        enabled: true
+        config:
+          folder: "attachments"
+    enabled: true
+
+logging:
+  level: "debug"
+  format: "text"
+  file: ""
