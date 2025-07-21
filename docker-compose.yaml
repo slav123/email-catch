@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  email-catch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "25:25"
+      - "587:587"
+      - "465:465"
+      - "2525:2525"
+    volumes:
+      - ./config:/app/config
+      - ./emails:/app/emails
+      - ./logs:/app/logs
+      - ./certs:/app/certs
+    environment:
+      - CONFIG_FILE=/app/config/config.yaml
+    depends_on:
+      - minio
+    networks:
+      - email-network
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - email-network
+
+  webhook-server:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./webhook-config:/etc/nginx/conf.d
+    networks:
+      - email-network
+
+volumes:
+  minio_data:
+
+networks:
+  email-network:
+    driver: bridge

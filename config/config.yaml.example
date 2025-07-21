@@ -1,0 +1,110 @@
+server:
+  ports: [25, 587, 2525]
+  hostname: "localhost"
+  tls:
+    enabled: false
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    letsencrypt:
+      enabled: false
+      domains: ["example.com"]
+      email: "you@example.com"
+      cache_dir: "certs/letsencrypt"
+      staging: false
+      http_port: 80
+      renew_before_days: 30
+  rate_limit:
+    enabled: true
+    max_emails_per_minute: 100
+    max_email_size_mb: 25
+
+storage:
+  s3_compatible:
+    enabled: true
+    endpoint: "s3.eu-central-1.amazonaws.com"
+    access_key: "YOUR_ACCESS_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    bucket: "your-s3-bucket"
+    region: "eu-central-1"
+    use_ssl: true
+    path_prefix: "emails"
+  local:
+    enabled: true
+    directory: "./emails"
+
+routes:
+  - name: "capture_all"
+    condition:
+      recipient_pattern: "capture@.*"
+    actions:
+      - type: "store_s3"
+        enabled: true
+        config:
+          folder: "capture"
+      - type: "store_local"
+        enabled: true
+        config:
+          folder: "capture"
+      - type: "webhook"
+        enabled: false
+        config:
+          url: ""
+          method: "POST"
+    enabled: true
+
+  - name: "test_emails"
+    condition:
+      recipient_pattern: "test@.*"
+      sender_pattern: ".*@testdomain.com"
+    actions:
+      - type: "store_local"
+        enabled: true
+        config:
+          folder: "test"
+    enabled: true
+
+  - name: "webhook_only"
+    condition:
+      recipient_pattern: "webhook@.*"
+    actions:
+      - type: "webhook"
+        enabled: true
+        config:
+          url: "http://localhost:8080/webhook"
+          method: "POST"
+          headers: "Content-Type:application/json,Authorization:Bearer token123"
+    enabled: true
+
+  - name: "large_attachments"
+    condition:
+      recipient_pattern: "attachments@.*"
+    actions:
+      - type: "store_s3"
+        enabled: true
+        config:
+          folder: "attachments"
+      - type: "webhook"
+        enabled: true
+        config:
+          url: "http://localhost:8080/attachments"
+          method: "POST"
+    enabled: true
+
+  - name: "catch_all"
+    condition:
+      recipient_pattern: ".*"
+    actions:
+      - type: "store_s3"
+        enabled: true
+        config:
+          folder: "general"
+      - type: "store_local"
+        enabled: true
+        config:
+          folder: "general"
+    enabled: true
+
+logging:
+  level: "info"
+  format: "json"
+  file: "logs/email-catch.log"

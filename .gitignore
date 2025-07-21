@@ -1,0 +1,21 @@
+# Binaries
+/bin
+/email-catch
+/email-catch-linux
+/email-catch-linux-v2
+/email-catch-linux-v2.1
+
+# Configuration
+/config/config.yaml
+
+# Certificates
+/certs/
+
+# Logs
+/logs/
+
+# Stored emails
+/emails/
+
+# IDE specific
+.claude/
