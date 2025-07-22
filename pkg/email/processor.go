@@ -147,13 +147,13 @@ func (p *Processor) executeLocalStorage(email *Email, action config.Action) erro
 	}
 
 	filename := p.generateFilename(email)
+	uniqueID := p.generateUniqueID(email)
 	// Add year and month to the path
 	year := email.Date.Format("2006")
 	month := email.Date.Format("01")
 	
-	// Create base folder name without .eml extension
-	baseFilename := strings.TrimSuffix(filename, ".eml")
-	folderPath := fmt.Sprintf("%s/%s/%s/%s", folder, year, month, baseFilename)
+	// Create folder path using timestamp-based unique ID
+	folderPath := fmt.Sprintf("%s/%s/%s/%s", folder, year, month, uniqueID)
 	
 	// Store the EML file
 	emlPath := fmt.Sprintf("%s/%s", folderPath, filename)
@@ -185,13 +185,13 @@ func (p *Processor) executeS3Storage(email *Email, action config.Action) error {
 	}
 
 	filename := p.generateFilename(email)
+	uniqueID := p.generateUniqueID(email)
 	// Add year and month to the path
 	year := email.Date.Format("2006")
 	month := email.Date.Format("01")
 	
-	// Create base folder name without .eml extension
-	baseFilename := strings.TrimSuffix(filename, ".eml")
-	folderPath := fmt.Sprintf("%s/%s/%s/%s", folder, year, month, baseFilename)
+	// Create folder path using timestamp-based unique ID
+	folderPath := fmt.Sprintf("%s/%s/%s/%s", folder, year, month, uniqueID)
 	
 	// Store the EML file
 	emlPath := fmt.Sprintf("%s/%s", folderPath, filename)
@@ -241,10 +241,10 @@ func (p *Processor) executeWebhook(email *Email, action config.Action) error {
 	folder := p.getRouteFolder(email)
 	
 	filename := p.generateFilename(email)
+	uniqueID := p.generateUniqueID(email)
 	year := email.Date.Format("2006")
 	month := email.Date.Format("01")
-	baseFilename := strings.TrimSuffix(filename, ".eml")
-	folderPath := fmt.Sprintf("%s/%s/%s/%s", folder, year, month, baseFilename)
+	folderPath := fmt.Sprintf("%s/%s/%s/%s", folder, year, month, uniqueID)
 	
 	// Generate markdown version of the email
 	markdownConverter := NewMarkdownConverter("https://img.example.com", folderPath)
@@ -274,6 +274,23 @@ func (p *Processor) executeWebhook(email *Email, action config.Action) error {
 	}
 
 	return p.webhookClient.SendWebhook(url, method, headers, payload)
+}
+
+func (p *Processor) generateUniqueID(email *Email) string {
+	// Use microseconds for better uniqueness to avoid collisions
+	timestamp := email.Date.Format("20060102_150405.000000")
+	
+	// If there's a MessageID, include a short hash for extra uniqueness
+	if email.MessageID != "" {
+		// Create a short hash from MessageID to ensure uniqueness
+		hash := fmt.Sprintf("%x", []byte(email.MessageID))
+		if len(hash) > 8 {
+			hash = hash[:8]
+		}
+		return fmt.Sprintf("%s_%s", timestamp, hash)
+	}
+	
+	return timestamp
 }
 
 func (p *Processor) generateFilename(email *Email) string {
@@ -339,15 +356,7 @@ func (p *Processor) getRouteFolder(email *Email) string {
 
 // storeWebhookPayload creates and stores the webhook payload as a JSON file
 func (p *Processor) storeWebhookPayload(email *Email, folderPath string) error {
-	// Generate the same payload structure as used in webhook
-	folder := ""
-	if folderAction := p.findS3StorageAction(email); folderAction != nil {
-		folder = folderAction.Config["folder"]
-		if folder == "" {
-			folder = "default"
-		}
-	}
-	
+	// Use the folderPath that was passed in - it's already correctly constructed
 	filename := p.generateFilename(email)
 	baseFilename := strings.TrimSuffix(filename, ".eml")
 	

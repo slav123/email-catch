@@ -51,7 +51,7 @@ func TestEmailFlowIntegration(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	files, err := filepath.Glob(filepath.Join(tempDir, "capture", "*.eml"))
+	files, err := filepath.Glob(filepath.Join(tempDir, "capture", "*", "*", "*", "*.eml"))
 	require.NoError(t, err)
 	assert.Len(t, files, 1, "Expected exactly one .eml file to be created")
 
@@ -114,7 +114,7 @@ func TestEmailWithAttachmentsFlow(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	files, err := filepath.Glob(filepath.Join(tempDir, "attachments", "*.eml"))
+	files, err := filepath.Glob(filepath.Join(tempDir, "attachments", "*", "*", "*", "*.eml"))
 	require.NoError(t, err)
 	assert.Len(t, files, 1, "Expected exactly one .eml file to be created")
 
@@ -177,7 +177,7 @@ func TestMultiPortEmailFlow(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	files, err := filepath.Glob(filepath.Join(tempDir, "capture", "*.eml"))
+	files, err := filepath.Glob(filepath.Join(tempDir, "capture", "*", "*", "*", "*.eml"))
 	require.NoError(t, err)
 	assert.Len(t, files, len(ports), "Expected %d .eml files to be created", len(ports))
 }

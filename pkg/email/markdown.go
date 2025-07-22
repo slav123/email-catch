@@ -231,6 +231,8 @@ func (mc *MarkdownConverter) getAttachmentURL(filename string) string {
 	switch folderName {
 	case "komunikacja-pro":
 		subdomain = "img.komunikacja.pro"
+	case "faktury-hib":
+		subdomain = "img.hib.pl"
 	default:
 		// Use base domain for unknown folders
 		u, err := url.Parse(mc.baseURL)
@@ -246,8 +248,10 @@ func (mc *MarkdownConverter) getAttachmentURL(filename string) string {
 		}
 	}
 
-	// The filename contains the relative path, so we prepend the folderPath
-	return fmt.Sprintf("https://%s/emails/%s/%s", subdomain, mc.folderPath, filename)
+	// Use path without the folder name (since it's encoded in subdomain)
+	// Extract everything after the first part (folder name)
+	pathWithoutFolder := strings.Join(parts[1:], "/")
+	return fmt.Sprintf("https://%s/%s/%s", subdomain, pathWithoutFolder, filename)
 }
 
 // formatFileSize formats file size in human-readable format
