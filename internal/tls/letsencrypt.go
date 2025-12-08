@@ -23,23 +23,23 @@ import (
 )
 
 type LetsEncryptManager struct {
-	domains    []string
-	email      string
-	cacheDir   string
-	staging    bool
-	manager    *autocert.Manager
-	httpPort   int
-	client     *acme.Client
+	domains  []string
+	email    string
+	cacheDir string
+	staging  bool
+	manager  *autocert.Manager
+	httpPort int
+	client   *acme.Client
 }
 
 type LetsEncryptConfig struct {
-	Enabled      bool     `yaml:"enabled"`
-	Domains      []string `yaml:"domains"`
-	Email        string   `yaml:"email"`
-	CacheDir     string   `yaml:"cache_dir"`
-	Staging      bool     `yaml:"staging"`
-	HTTPPort     int      `yaml:"http_port"`
-	RenewBefore  int      `yaml:"renew_before_days"`
+	Enabled     bool     `yaml:"enabled"`
+	Domains     []string `yaml:"domains"`
+	Email       string   `yaml:"email"`
+	CacheDir    string   `yaml:"cache_dir"`
+	Staging     bool     `yaml:"staging"`
+	HTTPPort    int      `yaml:"http_port"`
+	RenewBefore int      `yaml:"renew_before_days"`
 }
 
 func NewLetsEncryptManager(config LetsEncryptConfig) (*LetsEncryptManager, error) {
@@ -116,7 +116,7 @@ func (lm *LetsEncryptManager) GetTLSConfig() *tls.Config {
 
 func (lm *LetsEncryptManager) StartHTTPChallengeServer() error {
 	log.Printf("Starting HTTP challenge server on port %d", lm.httpPort)
-	
+
 	server := lm.manager.HTTPHandler(nil)
 	go func() {
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", lm.httpPort), server); err != nil {
@@ -197,6 +197,10 @@ func (lm *LetsEncryptManager) checkAndRenewCertificates() {
 }
 
 func (lm *LetsEncryptManager) checkCertificateExpiration(domain string) error {
+	return lm.checkCertificateExpirationWithThreshold(domain, 30)
+}
+
+func (lm *LetsEncryptManager) checkCertificateExpirationWithThreshold(domain string, renewBeforeDays int) error {
 	cert, err := lm.manager.GetCertificate(&tls.ClientHelloInfo{
 		ServerName: domain,
 	})
@@ -216,19 +220,30 @@ func (lm *LetsEncryptManager) checkCertificateExpiration(domain string) error {
 	daysUntilExpiry := time.Until(x509Cert.NotAfter).Hours() / 24
 	log.Printf("Certificate for %s expires in %.1f days", domain, daysUntilExpiry)
 
-	if daysUntilExpiry <= 30 {
-		log.Printf("Certificate for %s needs renewal (expires in %.1f days)", domain, daysUntilExpiry)
-		
-		_, err := lm.manager.GetCertificate(&tls.ClientHelloInfo{
-			ServerName: domain,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to renew certificate for %s: %w", domain, err)
-		}
-
-		log.Printf("Successfully renewed certificate for %s", domain)
+	// Check if certificate is already expired
+	if daysUntilExpiry <= 0 {
+		log.Printf("Certificate for %s has EXPIRED, forcing renewal", domain)
+		return lm.forceRenewCertificate(domain)
 	}
 
+	if daysUntilExpiry <= float64(renewBeforeDays) {
+		log.Printf("Certificate for %s needs renewal (expires in %.1f days, threshold: %d days)", domain, daysUntilExpiry, renewBeforeDays)
+		return lm.forceRenewCertificate(domain)
+	}
+
+	return nil
+}
+
+func (lm *LetsEncryptManager) forceRenewCertificate(domain string) error {
+	// Force renewal by requesting a new certificate
+	_, err := lm.manager.GetCertificate(&tls.ClientHelloInfo{
+		ServerName: domain,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to renew certificate for %s: %w", domain, err)
+	}
+
+	log.Printf("Successfully renewed certificate for %s", domain)
 	return nil
 }
 
@@ -237,7 +252,7 @@ func (lm *LetsEncryptManager) ValidateDomains() error {
 		if domain == "" {
 			return fmt.Errorf("empty domain name")
 		}
-		
+
 		if domain == "localhost" || domain == "127.0.0.1" {
 			return fmt.Errorf("cannot use Let's Encrypt with localhost or IP addresses")
 		}
@@ -245,9 +260,30 @@ func (lm *LetsEncryptManager) ValidateDomains() error {
 	return nil
 }
 
+// CheckAndRenewOnStartup validates certificates at startup and renews if needed.
+// Returns an error if certificates are invalid and cannot be renewed.
+func (lm *LetsEncryptManager) CheckAndRenewOnStartup(renewBeforeDays int) error {
+	log.Println("Checking certificate validity on startup...")
+
+	var lastErr error
+	for _, domain := range lm.domains {
+		if err := lm.checkCertificateExpirationWithThreshold(domain, renewBeforeDays); err != nil {
+			log.Printf("Certificate check/renewal failed for %s: %v", domain, err)
+			lastErr = err
+		}
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("certificate validation failed: %w", lastErr)
+	}
+
+	log.Println("All certificates are valid")
+	return nil
+}
+
 func (lm *LetsEncryptManager) GetCertificateInfo() (map[string]interface{}, error) {
 	info := make(map[string]interface{})
-	
+
 	for _, domain := range lm.domains {
 		cert, err := lm.manager.GetCertificate(&tls.ClientHelloInfo{
 			ServerName: domain,
@@ -275,16 +311,48 @@ func (lm *LetsEncryptManager) GetCertificateInfo() (map[string]interface{}, erro
 		}
 
 		info[domain] = map[string]interface{}{
-			"subject":     x509Cert.Subject.CommonName,
-			"issuer":      x509Cert.Issuer.CommonName,
-			"not_before":  x509Cert.NotBefore,
-			"not_after":   x509Cert.NotAfter,
-			"dns_names":   x509Cert.DNSNames,
+			"subject":           x509Cert.Subject.CommonName,
+			"issuer":            x509Cert.Issuer.CommonName,
+			"not_before":        x509Cert.NotBefore,
+			"not_after":         x509Cert.NotAfter,
+			"dns_names":         x509Cert.DNSNames,
 			"days_until_expiry": time.Until(x509Cert.NotAfter).Hours() / 24,
 		}
 	}
 
 	return info, nil
+}
+
+// ValidateStaticCertificate checks if a static certificate file is valid and not expired.
+// Returns days until expiry, or error if certificate is invalid/expired.
+func ValidateStaticCertificate(certPath string, renewBeforeDays int) (float64, error) {
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read certificate file: %w", err)
+	}
+
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return 0, fmt.Errorf("failed to decode PEM block from certificate")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	daysUntilExpiry := time.Until(cert.NotAfter).Hours() / 24
+
+	if daysUntilExpiry <= 0 {
+		return daysUntilExpiry, fmt.Errorf("certificate has EXPIRED (expired %.1f days ago)", -daysUntilExpiry)
+	}
+
+	if daysUntilExpiry <= float64(renewBeforeDays) {
+		return daysUntilExpiry, fmt.Errorf("certificate expires in %.1f days (threshold: %d days)", daysUntilExpiry, renewBeforeDays)
+	}
+
+	log.Printf("Static certificate valid, expires in %.1f days", daysUntilExpiry)
+	return daysUntilExpiry, nil
 }
 
 func GenerateSelfSignedCert(domains []string, certPath, keyPath string) error {

@@ -5,6 +5,11 @@ build:
 	go build -o bin/email-catch ./cmd/server
 	go build -o bin/certmanager ./cmd/certmanager
 
+# Build for Linux (for deployment from macOS)
+build-linux:
+	GOOS=linux GOARCH=amd64 go build -o bin/email-catch ./cmd/server
+	GOOS=linux GOARCH=amd64 go build -o bin/certmanager ./cmd/certmanager
+
 # Run all tests
 test: test-unit test-integration
 
@@ -124,3 +129,17 @@ test-quick: build run-test &
 	sleep 2
 	$(MAKE) test-send-simple
 	pkill -f "email-catch"
+
+# Deploy to production server
+deploy: build-linux
+	@echo "Deploying to capture.hib.pl..."
+	@echo "Stopping service..."
+	ssh root@capture.hib.pl "systemctl stop email-catch"
+	@echo "Uploading binaries..."
+	scp bin/email-catch root@capture.hib.pl:/opt/email-catch/bin/
+	scp bin/certmanager root@capture.hib.pl:/opt/email-catch/bin/
+	@echo "Uploading config files..."
+	scp config/config.yaml root@capture.hib.pl:/opt/email-catch/config/
+	@echo "Setting permissions and restarting service..."
+	ssh root@capture.hib.pl "chmod +x /opt/email-catch/bin/* && chown -R email-catch:email-catch /opt/email-catch && systemctl daemon-reload && systemctl start email-catch && systemctl status email-catch"
+	@echo "Deployment complete!"

@@ -31,14 +31,33 @@ func main() {
 	switch *action {
 	case "info":
 		showCertificateInfo(cfg)
+	case "check":
+		checkCertificate(*certPath)
 	case "renew":
 		renewCertificates(cfg)
 	case "generate-self-signed":
 		generateSelfSigned(*domains, *certPath, *keyPath)
 	default:
 		fmt.Printf("Unknown action: %s\n", *action)
-		fmt.Println("Available actions: info, renew, generate-self-signed")
+		fmt.Println("Available actions: info, check, renew, generate-self-signed")
 		os.Exit(1)
+	}
+}
+
+func checkCertificate(certPath string) {
+	fmt.Printf("Checking certificate: %s\n", certPath)
+
+	daysUntilExpiry, err := tlsmanager.ValidateStaticCertificate(certPath, 30)
+	if err != nil {
+		fmt.Printf("❌ Certificate INVALID: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✅ Certificate is valid\n")
+	fmt.Printf("   Days until expiry: %.1f\n", daysUntilExpiry)
+
+	if daysUntilExpiry <= 30 {
+		fmt.Printf("⚠️  Warning: Certificate expires soon!\n")
 	}
 }
 
@@ -49,13 +68,13 @@ func showCertificateInfo(cfg *config.Config) {
 	}
 
 	leMgr, err := tlsmanager.NewLetsEncryptManager(tlsmanager.LetsEncryptConfig{
-		Enabled:         cfg.Server.TLS.LetsEncrypt.Enabled,
-		Domains:         cfg.Server.TLS.LetsEncrypt.Domains,
-		Email:           cfg.Server.TLS.LetsEncrypt.Email,
-		CacheDir:        cfg.Server.TLS.LetsEncrypt.CacheDir,
-		Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
-		HTTPPort:        cfg.Server.TLS.LetsEncrypt.HTTPPort,
-		RenewBefore:     cfg.Server.TLS.LetsEncrypt.RenewBeforeDays,
+		Enabled:     cfg.Server.TLS.LetsEncrypt.Enabled,
+		Domains:     cfg.Server.TLS.LetsEncrypt.Domains,
+		Email:       cfg.Server.TLS.LetsEncrypt.Email,
+		CacheDir:    cfg.Server.TLS.LetsEncrypt.CacheDir,
+		Staging:     cfg.Server.TLS.LetsEncrypt.Staging,
+		HTTPPort:    cfg.Server.TLS.LetsEncrypt.HTTPPort,
+		RenewBefore: cfg.Server.TLS.LetsEncrypt.RenewBeforeDays,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create Let's Encrypt manager: %v", err)
@@ -69,7 +88,7 @@ func showCertificateInfo(cfg *config.Config) {
 	fmt.Println("=== Certificate Information ===")
 	for domain, certInfo := range info {
 		fmt.Printf("\nDomain: %s\n", domain)
-		
+
 		data, _ := json.MarshalIndent(certInfo, "  ", "  ")
 		fmt.Printf("  %s\n", string(data))
 	}
@@ -82,13 +101,13 @@ func renewCertificates(cfg *config.Config) {
 	}
 
 	leMgr, err := tlsmanager.NewLetsEncryptManager(tlsmanager.LetsEncryptConfig{
-		Enabled:         cfg.Server.TLS.LetsEncrypt.Enabled,
-		Domains:         cfg.Server.TLS.LetsEncrypt.Domains,
-		Email:           cfg.Server.TLS.LetsEncrypt.Email,
-		CacheDir:        cfg.Server.TLS.LetsEncrypt.CacheDir,
-		Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
-		HTTPPort:        cfg.Server.TLS.LetsEncrypt.HTTPPort,
-		RenewBefore:     cfg.Server.TLS.LetsEncrypt.RenewBeforeDays,
+		Enabled:     cfg.Server.TLS.LetsEncrypt.Enabled,
+		Domains:     cfg.Server.TLS.LetsEncrypt.Domains,
+		Email:       cfg.Server.TLS.LetsEncrypt.Email,
+		CacheDir:    cfg.Server.TLS.LetsEncrypt.CacheDir,
+		Staging:     cfg.Server.TLS.LetsEncrypt.Staging,
+		HTTPPort:    cfg.Server.TLS.LetsEncrypt.HTTPPort,
+		RenewBefore: cfg.Server.TLS.LetsEncrypt.RenewBeforeDays,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create Let's Encrypt manager: %v", err)

@@ -83,7 +83,7 @@ func (mc *MarkdownConverter) convertHTMLToMarkdown(htmlContent string, attachmen
 // replaceImagesWithMarkdown replaces HTML img tags with markdown image syntax
 func (mc *MarkdownConverter) replaceImagesWithMarkdown(content string, attachments []Attachment) string {
 	// Find all img tags
-	imgRegex := regexp.MustCompile(`<img[^>]*src=["']([^"']+)["'][^>]*>`)
+	imgRegex := regexp.MustCompile(`<img[^>]*>`)
 
 	content = imgRegex.ReplaceAllStringFunc(content, func(match string) string {
 		// Extract src attribute
@@ -95,17 +95,34 @@ func (mc *MarkdownConverter) replaceImagesWithMarkdown(content string, attachmen
 
 		src := srcMatch[1]
 
+		// Extract alt attribute for matching
+		altRegex := regexp.MustCompile(`alt=["']([^"']*)["']`)
+		altMatch := altRegex.FindStringSubmatch(match)
+		alt := ""
+		if len(altMatch) >= 2 {
+			alt = altMatch[1]
+		}
+
 		// Check if this is a reference to an attachment
-		if attachment := mc.findAttachmentBySrc(src, attachments); attachment != nil {
+		if attachment := mc.findAttachmentBySrc(src, alt, attachments); attachment != nil {
 			if mc.isImageAttachment(attachment) {
 				imageURL := mc.getAttachmentURL(attachment.Filename)
-				return fmt.Sprintf("![%s](%s)", attachment.Filename, imageURL)
+				// Use alt text if available, otherwise use filename
+				displayName := alt
+				if displayName == "" {
+					displayName = attachment.Filename
+				}
+				return fmt.Sprintf("![%s](%s)", displayName, imageURL)
 			}
 		}
 
 		// If not found in attachments, keep original URL or try to make it absolute
 		if strings.HasPrefix(src, "http") {
-			return fmt.Sprintf("![Image](%s)", src)
+			displayName := alt
+			if displayName == "" {
+				displayName = "Image"
+			}
+			return fmt.Sprintf("![%s](%s)", displayName, src)
 		}
 
 		return match // Keep original if we can't process it
@@ -177,16 +194,39 @@ func (mc *MarkdownConverter) cleanupWhitespace(content string) string {
 	return content
 }
 
-// findAttachmentBySrc finds an attachment by its source reference
-func (mc *MarkdownConverter) findAttachmentBySrc(src string, attachments []Attachment) *Attachment {
-	// Try to match by filename
+// findAttachmentBySrc finds an attachment by its source reference or alt text
+func (mc *MarkdownConverter) findAttachmentBySrc(src string, alt string, attachments []Attachment) *Attachment {
+	// Try to match by filename in src
 	for i := range attachments {
-		if strings.Contains(src, attachments[i].Filename) {
+		decodedFilename, err := url.QueryUnescape(attachments[i].Filename)
+		if err != nil {
+			decodedFilename = attachments[i].Filename
+		}
+		if strings.Contains(src, attachments[i].Filename) || strings.Contains(src, decodedFilename) {
 			return &attachments[i]
 		}
 	}
 
-	// Try to match by content-id (cid:)
+	// Try to match by alt text (common pattern: alt contains part of filename)
+	if alt != "" {
+		for i := range attachments {
+			decodedFilename, err := url.QueryUnescape(attachments[i].Filename)
+			if err != nil {
+				decodedFilename = attachments[i].Filename
+			}
+			// Check if alt text is contained in filename (handles "Zrzut ekranu 2025-12-08 111218" matching "Zrzut%20ekranu%202025-12-08%20111218[2].png")
+			if strings.Contains(decodedFilename, alt) || strings.Contains(attachments[i].Filename, alt) {
+				return &attachments[i]
+			}
+			// Also try normalized comparison (replace spaces with %20)
+			normalizedAlt := strings.ReplaceAll(alt, " ", "%20")
+			if strings.Contains(attachments[i].Filename, normalizedAlt) {
+				return &attachments[i]
+			}
+		}
+	}
+
+	// Try to match by content-id (cid:) - though this rarely works without proper CID headers
 	if strings.HasPrefix(src, "cid:") {
 		cid := strings.TrimPrefix(src, "cid:")
 		for i := range attachments {

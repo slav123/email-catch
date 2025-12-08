@@ -18,14 +18,14 @@ import (
 )
 
 type Server struct {
-	config            *config.Config
-	listeners         []net.Listener
-	processor         *email.Processor
-	wg                sync.WaitGroup
-	shutdown          chan struct{}
-	letsencryptMgr    *tlsmanager.LetsEncryptManager
-	renewalCtx        context.Context
-	renewalCancel     context.CancelFunc
+	config         *config.Config
+	listeners      []net.Listener
+	processor      *email.Processor
+	wg             sync.WaitGroup
+	shutdown       chan struct{}
+	letsencryptMgr *tlsmanager.LetsEncryptManager
+	renewalCtx     context.Context
+	renewalCancel  context.CancelFunc
 }
 
 type Session struct {
@@ -42,7 +42,7 @@ type Session struct {
 
 func NewServer(cfg *config.Config, processor *email.Processor) *Server {
 	renewalCtx, renewalCancel := context.WithCancel(context.Background())
-	
+
 	server := &Server{
 		config:        cfg,
 		processor:     processor,
@@ -53,13 +53,13 @@ func NewServer(cfg *config.Config, processor *email.Processor) *Server {
 
 	if cfg.Server.TLS.LetsEncrypt.Enabled {
 		leMgr, err := tlsmanager.NewLetsEncryptManager(tlsmanager.LetsEncryptConfig{
-			Enabled:         cfg.Server.TLS.LetsEncrypt.Enabled,
-			Domains:         cfg.Server.TLS.LetsEncrypt.Domains,
-			Email:           cfg.Server.TLS.LetsEncrypt.Email,
-			CacheDir:        cfg.Server.TLS.LetsEncrypt.CacheDir,
-			Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
-			HTTPPort:        cfg.Server.TLS.LetsEncrypt.HTTPPort,
-			RenewBefore:     cfg.Server.TLS.LetsEncrypt.RenewBeforeDays,
+			Enabled:     cfg.Server.TLS.LetsEncrypt.Enabled,
+			Domains:     cfg.Server.TLS.LetsEncrypt.Domains,
+			Email:       cfg.Server.TLS.LetsEncrypt.Email,
+			CacheDir:    cfg.Server.TLS.LetsEncrypt.CacheDir,
+			Staging:     cfg.Server.TLS.LetsEncrypt.Staging,
+			HTTPPort:    cfg.Server.TLS.LetsEncrypt.HTTPPort,
+			RenewBefore: cfg.Server.TLS.LetsEncrypt.RenewBeforeDays,
 		})
 		if err != nil {
 			log.Printf("Failed to initialize Let's Encrypt manager: %v", err)
@@ -73,6 +73,11 @@ func NewServer(cfg *config.Config, processor *email.Processor) *Server {
 }
 
 func (s *Server) Start() error {
+	// Validate certificates on startup
+	if err := s.validateCertificatesOnStartup(); err != nil {
+		return fmt.Errorf("certificate validation failed: %w", err)
+	}
+
 	if s.letsencryptMgr != nil {
 		if err := s.letsencryptMgr.ValidateDomains(); err != nil {
 			return fmt.Errorf("Let's Encrypt domain validation failed: %w", err)
@@ -105,22 +110,22 @@ func (s *Server) Start() error {
 			return fmt.Errorf("failed to start listener on port %d: %w", port, err)
 		}
 		s.listeners = append(s.listeners, listener)
-		
+
 		s.wg.Add(1)
 		go s.handleListener(listener, port)
-		
+
 		log.Printf("SMTP server listening on port %d", port)
 	}
-	
+
 	return nil
 }
 
 func (s *Server) startListener(port int) (net.Listener, error) {
 	addr := fmt.Sprintf("%s:%d", s.config.Server.Hostname, port)
-	
+
 	if s.config.Server.TLS.Enabled && (port == 465 || port == 993) {
 		var tlsConfig *tls.Config
-		
+
 		if s.letsencryptMgr != nil {
 			tlsConfig = s.letsencryptMgr.GetTLSConfig()
 		} else {
@@ -128,21 +133,21 @@ func (s *Server) startListener(port int) (net.Listener, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
 			}
-			
+
 			tlsConfig = &tls.Config{
 				Certificates: []tls.Certificate{cert},
 			}
 		}
-		
+
 		return tls.Listen("tcp", addr, tlsConfig)
 	}
-	
+
 	return net.Listen("tcp", addr)
 }
 
 func (s *Server) handleListener(listener net.Listener, port int) {
 	defer s.wg.Done()
-	
+
 	for {
 		select {
 		case <-s.shutdown:
@@ -158,7 +163,7 @@ func (s *Server) handleListener(listener net.Listener, port int) {
 					continue
 				}
 			}
-			
+
 			go s.handleConnection(conn, port)
 		}
 	}
@@ -166,7 +171,7 @@ func (s *Server) handleListener(listener net.Listener, port int) {
 
 func (s *Server) handleConnection(conn net.Conn, port int) {
 	defer conn.Close()
-	
+
 	session := &Session{
 		conn:   conn,
 		reader: bufio.NewReader(conn),
@@ -174,11 +179,11 @@ func (s *Server) handleConnection(conn net.Conn, port int) {
 		server: s,
 		rcptTo: make([]string, 0),
 	}
-	
+
 	log.Printf("New connection from %s on port %d", conn.RemoteAddr(), port)
-	
+
 	session.sendResponse(220, fmt.Sprintf("%s ESMTP Ready", s.config.Server.Hostname))
-	
+
 	for {
 		line, err := session.reader.ReadString('\n')
 		if err != nil {
@@ -187,19 +192,19 @@ func (s *Server) handleConnection(conn net.Conn, port int) {
 			}
 			break
 		}
-		
+
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		parts := strings.SplitN(line, " ", 2)
 		command := strings.ToUpper(parts[0])
 		args := ""
 		if len(parts) > 1 {
 			args = parts[1]
 		}
-		
+
 		if !session.handleCommand(command, args) {
 			break
 		}
@@ -238,7 +243,7 @@ func (s *Session) handleHelo(args string) bool {
 		s.sendResponse(501, "HELO requires domain address")
 		return true
 	}
-	
+
 	s.helo = args
 	s.sendResponse(250, fmt.Sprintf("Hello %s", args))
 	return true
@@ -249,23 +254,23 @@ func (s *Session) handleEhlo(args string) bool {
 		s.sendResponse(501, "EHLO requires domain address")
 		return true
 	}
-	
+
 	s.helo = args
-	
+
 	// Build EHLO response as multi-line according to RFC 5321
 	var responses []string
 	responses = append(responses, fmt.Sprintf("%s Hello %s", s.server.config.Server.Hostname, args))
-	
+
 	if s.server.config.Server.TLS.Enabled && !s.tlsEnabled {
 		responses = append(responses, "STARTTLS")
 	}
-	
+
 	responses = append(responses, "SIZE 104857600")
 	responses = append(responses, "8BITMIME")
 	responses = append(responses, "PIPELINING")
-	
+
 	s.sendMultiLineResponse(250, responses)
-	
+
 	return true
 }
 
@@ -274,16 +279,16 @@ func (s *Session) handleStartTLS() bool {
 		s.sendResponse(502, "TLS not available")
 		return true
 	}
-	
+
 	if s.tlsEnabled {
 		s.sendResponse(503, "TLS already active")
 		return true
 	}
-	
+
 	s.sendResponse(220, "Ready to start TLS")
-	
+
 	var tlsConfig *tls.Config
-	
+
 	if s.server.letsencryptMgr != nil {
 		tlsConfig = s.server.letsencryptMgr.GetTLSConfig()
 	} else {
@@ -293,27 +298,27 @@ func (s *Session) handleStartTLS() bool {
 			s.sendResponse(454, "TLS not available")
 			return true
 		}
-		
+
 		tlsConfig = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		}
 	}
-	
+
 	tlsConn := tls.Server(s.conn, tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
 		log.Printf("TLS handshake failed: %v", err)
 		return false
 	}
-	
+
 	s.conn = tlsConn
 	s.reader = bufio.NewReader(tlsConn)
 	s.writer = bufio.NewWriter(tlsConn)
 	s.tlsEnabled = true
-	
+
 	s.helo = ""
 	s.mailFrom = ""
 	s.rcptTo = s.rcptTo[:0]
-	
+
 	return true
 }
 
@@ -322,17 +327,17 @@ func (s *Session) handleMail(args string) bool {
 		s.sendResponse(503, "Need HELO first")
 		return true
 	}
-	
+
 	if !strings.HasPrefix(strings.ToUpper(args), "FROM:") {
 		s.sendResponse(501, "Syntax error in MAIL command")
 		return true
 	}
-	
+
 	from := strings.TrimSpace(args[5:])
 	if strings.HasPrefix(from, "<") && strings.HasSuffix(from, ">") {
 		from = from[1 : len(from)-1]
 	}
-	
+
 	s.mailFrom = from
 	s.rcptTo = s.rcptTo[:0]
 	s.sendResponse(250, "OK")
@@ -344,17 +349,17 @@ func (s *Session) handleRcpt(args string) bool {
 		s.sendResponse(503, "Need MAIL first")
 		return true
 	}
-	
+
 	if !strings.HasPrefix(strings.ToUpper(args), "TO:") {
 		s.sendResponse(501, "Syntax error in RCPT command")
 		return true
 	}
-	
+
 	to := strings.TrimSpace(args[3:])
 	if strings.HasPrefix(to, "<") && strings.HasSuffix(to, ">") {
 		to = to[1 : len(to)-1]
 	}
-	
+
 	s.rcptTo = append(s.rcptTo, to)
 	s.sendResponse(250, "OK")
 	return true
@@ -365,9 +370,9 @@ func (s *Session) handleData() bool {
 		s.sendResponse(503, "Need RCPT first")
 		return true
 	}
-	
+
 	s.sendResponse(354, "Start mail input; end with <CRLF>.<CRLF>")
-	
+
 	var data []byte
 	for {
 		line, err := s.reader.ReadBytes('\n')
@@ -375,33 +380,33 @@ func (s *Session) handleData() bool {
 			log.Printf("Error reading data: %v", err)
 			return false
 		}
-		
+
 		if len(line) >= 3 && line[0] == '.' && line[1] == '\r' && line[2] == '\n' {
 			break
 		}
-		
+
 		if len(line) > 0 && line[0] == '.' {
 			line = line[1:]
 		}
-		
+
 		data = append(data, line...)
 	}
-	
+
 	s.data = data
-	
+
 	err := s.server.processor.ProcessEmail(s.mailFrom, s.rcptTo, data)
 	if err != nil {
 		log.Printf("Error processing email: %v", err)
 		s.sendResponse(554, "Transaction failed")
 		return true
 	}
-	
+
 	s.sendResponse(250, "OK")
-	
+
 	s.mailFrom = ""
 	s.rcptTo = s.rcptTo[:0]
 	s.data = nil
-	
+
 	return true
 }
 
@@ -439,23 +444,65 @@ func (s *Session) sendMultiLineResponse(code int, messages []string) {
 	s.writer.Flush()
 }
 
+// validateCertificatesOnStartup checks certificate validity at server startup.
+// For Let's Encrypt: validates and renews if needed.
+// For static certificates: validates expiry and warns/errors if expired.
+func (s *Server) validateCertificatesOnStartup() error {
+	if !s.config.Server.TLS.Enabled {
+		log.Println("TLS is disabled, skipping certificate validation")
+		return nil
+	}
+
+	renewBeforeDays := 30 // default
+	if s.config.Server.TLS.LetsEncrypt.RenewBeforeDays > 0 {
+		renewBeforeDays = s.config.Server.TLS.LetsEncrypt.RenewBeforeDays
+	}
+
+	// Let's Encrypt certificates
+	if s.letsencryptMgr != nil {
+		log.Println("Validating Let's Encrypt certificates on startup...")
+		if err := s.letsencryptMgr.CheckAndRenewOnStartup(renewBeforeDays); err != nil {
+			// Log warning but don't fail - autocert will try to obtain new certs
+			log.Printf("Warning: Let's Encrypt certificate validation issue: %v", err)
+			log.Println("Will attempt to obtain new certificates...")
+		}
+		return nil
+	}
+
+	// Static certificates
+	if s.config.Server.TLS.CertFile != "" {
+		log.Printf("Validating static certificate: %s", s.config.Server.TLS.CertFile)
+		daysUntilExpiry, err := tlsmanager.ValidateStaticCertificate(s.config.Server.TLS.CertFile, renewBeforeDays)
+		if err != nil {
+			log.Printf("WARNING: Static certificate validation failed: %v", err)
+			log.Printf("Certificate needs renewal! Days until expiry: %.1f", daysUntilExpiry)
+			// Return error for expired certs, but allow near-expiry with warning
+			if daysUntilExpiry <= 0 {
+				return fmt.Errorf("static certificate has expired: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) Stop() {
 	close(s.shutdown)
-	
+
 	if s.renewalCancel != nil {
 		s.renewalCancel()
 	}
-	
+
 	for _, listener := range s.listeners {
 		listener.Close()
 	}
-	
+
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		log.Println("SMTP server stopped gracefully")
