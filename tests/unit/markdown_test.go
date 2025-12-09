@@ -282,6 +282,28 @@ func TestReplaceImagesWithMarkdown(t *testing.T) {
 			},
 			wantContain: []string{"![test.png](https://img.komunikacja.pro/2025/07/test/test.png)"},
 		},
+		{
+			name: "Content-ID header matching with renamed attachment",
+			html: `<img src="cid:image001.png@01DC68FA.6F6ED740" alt="image001.png">`,
+			attachments: []email.Attachment{
+				{Filename: "attachment_1.png", ContentType: "image/png", Size: 90827, ContentID: "image001.png@01DC68FA.6F6ED740"},
+			},
+			wantContain:    []string{"![image001.png](https://img.komunikacja.pro/2025/07/test/attachment_1.png)"},
+			wantNotContain: []string{"<img"},
+		},
+		{
+			name: "Multiple inline images with Content-ID",
+			html: `<img src="cid:image001.png@ABC" alt="First"><p>text</p><img src="cid:image002.png@DEF" alt="Second">`,
+			attachments: []email.Attachment{
+				{Filename: "attachment_1.png", ContentType: "image/png", Size: 1024, ContentID: "image001.png@ABC"},
+				{Filename: "attachment_2.png", ContentType: "image/png", Size: 2048, ContentID: "image002.png@DEF"},
+			},
+			wantContain: []string{
+				"![First](https://img.komunikacja.pro/2025/07/test/attachment_1.png)",
+				"![Second](https://img.komunikacja.pro/2025/07/test/attachment_2.png)",
+			},
+			wantNotContain: []string{"<img"},
+		},
 	}
 
 	for _, tt := range tests {

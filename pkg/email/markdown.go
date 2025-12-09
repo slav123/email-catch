@@ -226,11 +226,18 @@ func (mc *MarkdownConverter) findAttachmentBySrc(src string, alt string, attachm
 		}
 	}
 
-	// Try to match by content-id (cid:) - though this rarely works without proper CID headers
+	// Try to match by Content-ID header (cid: references)
 	if strings.HasPrefix(src, "cid:") {
 		cid := strings.TrimPrefix(src, "cid:")
 		for i := range attachments {
-			if strings.Contains(attachments[i].Filename, cid) {
+			// Match against stored Content-ID (exact match or contained)
+			if attachments[i].ContentID != "" {
+				if attachments[i].ContentID == cid || strings.Contains(attachments[i].ContentID, cid) || strings.Contains(cid, attachments[i].ContentID) {
+					return &attachments[i]
+				}
+			}
+			// Fallback: check if CID contains the filename
+			if strings.Contains(cid, attachments[i].Filename) {
 				return &attachments[i]
 			}
 		}

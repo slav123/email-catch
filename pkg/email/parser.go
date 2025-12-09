@@ -31,6 +31,7 @@ type Attachment struct {
 	ContentType string
 	Content     []byte
 	Size        int64
+	ContentID   string // Content-ID header for inline images (cid: references)
 }
 
 func ParseEmail(rawData []byte, from string, to []string) (*Email, error) {
@@ -57,7 +58,7 @@ func ParseEmail(rawData []byte, from string, to []string) (*Email, error) {
 
 	email.Subject = decodeMIMEHeader(msg.Header.Get("Subject"))
 	email.MessageID = decodeMIMEHeader(msg.Header.Get("Message-Id"))
-	
+
 	// Also decode the From header if present (may be different from SMTP envelope)
 	if fromHeader := msg.Header.Get("From"); fromHeader != "" {
 		email.From = decodeMIMEHeader(fromHeader)
@@ -141,21 +142,21 @@ func (e *Email) parseMultipart(body io.Reader, boundary string) error {
 		}
 
 		disposition, params, _ := mime.ParseMediaType(contentDisposition)
-		
+
 		// Debug: log part information
-		log.Printf("DEBUG: Part - ContentType: %s, ContentDisposition: %s, Size: %d, Disposition: %s", 
+		log.Printf("DEBUG: Part - ContentType: %s, ContentDisposition: %s, Size: %d, Disposition: %s",
 			contentType, contentDisposition, len(decoded), disposition)
 
 		// Check if this is an attachment based on various indicators
 		isAttachment := false
 		filename := ""
-		
+
 		// Standard attachment detection
 		if disposition == "attachment" || (disposition == "" && params["filename"] != "") {
 			isAttachment = true
 			filename = params["filename"]
 		}
-		
+
 		// Check for application/* content types that are likely attachments
 		mediaType, mediaParams, _ := mime.ParseMediaType(contentType)
 		if strings.HasPrefix(mediaType, "application/") && !strings.HasPrefix(mediaType, "application/text") {
@@ -164,7 +165,7 @@ func (e *Email) parseMultipart(body io.Reader, boundary string) error {
 				filename = mediaParams["name"]
 			}
 		}
-		
+
 		// Check for image attachments
 		if strings.HasPrefix(mediaType, "image/") {
 			isAttachment = true
@@ -172,7 +173,7 @@ func (e *Email) parseMultipart(body io.Reader, boundary string) error {
 				filename = mediaParams["name"]
 			}
 		}
-		
+
 		// Handle message/rfc822 as forwarded email attachment
 		if strings.HasPrefix(contentType, "message/rfc822") || strings.Contains(contentType, "forwarded-message") {
 			isAttachment = true
@@ -180,22 +181,30 @@ func (e *Email) parseMultipart(body io.Reader, boundary string) error {
 				filename = "forwarded_email.eml"
 			}
 		}
-		
+
 		if isAttachment {
 			if filename == "" {
 				// Generate filename based on content type
 				ext := getFileExtension(mediaType)
 				filename = fmt.Sprintf("attachment_%d%s", len(e.Attachments)+1, ext)
 			}
-			
-			log.Printf("DEBUG: Found attachment - Filename: %s, ContentType: %s, Size: %d", 
-				filename, contentType, len(decoded))
-			
+
+			// Extract Content-ID for inline image matching (strip angle brackets if present)
+			contentID := part.Header.Get("Content-Id")
+			if contentID != "" {
+				contentID = strings.TrimPrefix(contentID, "<")
+				contentID = strings.TrimSuffix(contentID, ">")
+			}
+
+			log.Printf("DEBUG: Found attachment - Filename: %s, ContentType: %s, Size: %d, ContentID: %s",
+				filename, contentType, len(decoded), contentID)
+
 			attachment := Attachment{
 				Filename:    filename,
 				ContentType: contentType,
 				Content:     decoded,
 				Size:        int64(len(decoded)),
+				ContentID:   contentID,
 			}
 			e.Attachments = append(e.Attachments, attachment)
 		} else {
@@ -289,7 +298,7 @@ func decodeMIMEHeader(header string) string {
 	if header == "" {
 		return ""
 	}
-	
+
 	// Use Go's built-in MIME word decoder
 	decoder := &mime.WordDecoder{}
 	decoded, err := decoder.DecodeHeader(header)
@@ -297,7 +306,7 @@ func decodeMIMEHeader(header string) string {
 		// If decoding fails, return the original header
 		return header
 	}
-	
+
 	return decoded
 }
 
